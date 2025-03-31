@@ -1,27 +1,84 @@
 #include "PThread.hpp"
-
+#include <stdio.h>
+#include <stdlib.h>
 
 
 namespace Flush{
 
-    void* pthreadInit(void* entry){
+    class DefaultRunnable : public Runnable{
+
+        public:
+
+            u32 Run(void) {
+                FLUSH_ASSERT(0 , "Default Runnable is running !!!" , 0);
+            }
+
+            virtual u32 Start(void) {
+                FLUSH_ASSERT(0 , "Default Runnable is starting !!!" , 0);
+            }
+
+            virtual u32 Stop(void) {
+                FLUSH_ASSERT(0 , "Default Runnable is stopped !!!" , 0);
+            }
+
+    };
+
+    static DefaultRunnable NullRunnable;
+
+    void* pthreadRun(void* thread){
         
-        if (entry == nullptr){
-            FLUSH_ASSERT(0 , "Pthread Initiallize thread function has argument of entry nullptr !!!" , 0);
+        if (thread == nullptr){
+            FLUSH_ASSERT(0 , "Pthread Initiallize thread function has nullptr for parameter !!!" , 0);
             return NULL;
         }
+        PThread& th = *((PThread*)thread);
 
-        Entry ent = (Entry) entry;
-        u32 res = ent();
+        if (th.m_HasCreated == false){
+            FLUSH_ASSERT(0 , "Pthread has not created yet !!!" , 0);
+            return NULL;
+        }
+        
+        Runnable* ent = (Runnable*) th.GetRunnable();
+        uptr res;
 
-        return NULL;
+        pthread_cleanup_push(pthreadStop , thread);
+        if (th.m_HasRunned){
+            res = ent->Run();
+        }
+        else{
+            res = ent->Start();
+            th.m_HasRunned = true;
+        }
+        pthread_cleanup_pop(0);
+
+        return ((void*)res);
+    }
+
+    void pthreadStop(void* thread){
+
+        if (thread == nullptr){
+            FLUSH_ASSERT(0 , "Pthread Initiallize thread function has nullptr for parameter !!!" , 0);
+            return ;
+        }
+
+        PThread& th = *((PThread*)thread);
+
+        if (th.m_HasCreated == false){
+            FLUSH_ASSERT(0 , "Pthread has not created yet !!!" , 0);
+            return ;
+        }
+        
+        Runnable* ent = (Runnable*) th.GetRunnable();
+        uptr res = ent->Stop();
+        
     }
     
-    UniquePThread::UniquePThread(void) {
+    PThread::PThread(void) {
 
-        m_Entry         = nullptr;
-        m_PthreadEntry  = pthreadInit;
+        m_PthreadEntry  = pthreadRun;
         m_HasCreated = false;
+        m_HasRunned  = false;
+        m_Runnable = &NullRunnable;
         //Initiallize attributes - 
         PThreadCheck(pthread_attr_init(&m_Attributes) );
 
@@ -30,40 +87,77 @@ namespace Flush{
         // be freed and no longer exist (not let it became zombie thread, waiting for someone to free him
         // with a join call )
         PThreadCheck(pthread_attr_setdetachstate(&m_Attributes , PTHREAD_CREATE_DETACHED ));
-
+        int dontCare;
+        //set thread cancelable
+        PThreadCheck(pthread_setcancelstate(PTHREAD_CANCEL_ENABLE , &dontCare));
+        //make a cancel request pending until the next cancle point
+        PThreadCheck(pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED , &dontCare));
     }
 
-    UniquePThread::~UniquePThread(void){
+    PThread::~PThread(void){
         PThreadCheck(pthread_attr_destroy(&m_Attributes));
     }
 
-    void UniquePThread::SetEntry(Entry entry){
-        FLUSH_ASSERT(entry , "At SetEntry method - parameter entry is nullptr" , 0);
-        m_Entry = *entry;
-    }
-
-    Entry UniquePThread::GetEntry(void) const{
-        return m_Entry;
-    }
-
-    void UniquePThread::Create(void){
+    void PThread::SetRunnable(Runnable* runnable) {
         
-        if (m_Entry == nullptr){
-            FLUSH_ASSERT(0 , "Create Method has no entry function to create the thread entry point !!!" , 0);
+        if (!runnable){
+            FLUSH_ASSERT(0 , "SetRunnable(Runnable* runnable) runnable is nullptr !!!", 0);
+            m_Runnable = &NullRunnable;
             return;
         }
 
+        if (!m_HasCreated){
+            FLUSH_ASSERT(0 , "SetRunnable(Runnable* runnable) is Called after Create(void) has called !!!" , 0 );
+            return;
+        }
+
+        m_Runnable = runnable; 
+    }
+
+    Runnable* PThread::GetRunnable(void) const {
+        FLUSH_ASSERT(m_Runnable != &NullRunnable, "No runnable is set yet !!!", 0);
+
+        return m_Runnable;
+    }
+
+    void PThread::Create(void){
+        
+
         if (m_HasCreated){
-            FLUSH_ASSERT(0 , "Create Method Have already called for this thread " , 0);
+            FLUSH_ASSERT(0 , "Create(void) Method Have already called for this thread " , 0);
             return ;
         }
 
-        PThreadCheck(pthread_create(&m_Id , &m_Attributes , m_PthreadEntry , &m_Entry) );
+        PThreadCheck(pthread_create(&m_Id , &m_Attributes , m_PthreadEntry , this) );
+
+         
+
+        m_HasCreated = true;
         
     }
 
+    void Cancel(Thread* thread){
+
+        if (thread == nullptr){
+            FLUSH_ASSERT(0 , "void Cancel(Thread* thread) has a nullptr pointer thread !!!" , 0);
+            return;
+        }
+
+        PThread& th = (*(PThread*)thread);
+        if (th.m_HasCreated == false){
+            FLUSH_ASSERT(0 , "void Cancel(Thread* thread) thread has not created yet !!!" , 0);
+            return;
+        }
+
+        PThreadCheck(pthread_cancel( th.m_Id));
+    }
+
+    void TestCancel(void){
+        pthread_testcancel();
+    }
+
     Thread* NewThread(void){
-        return new UniquePThread();
+        return new PThread();
     }
 
     void DeleteThread(Thread* ptr){

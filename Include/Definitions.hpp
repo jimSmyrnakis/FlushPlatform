@@ -126,6 +126,7 @@ namespace Flush{
     typedef __flush_i64     i64 ;
 
     typedef __flush_u64     fsize; // used for the size of the file
+    typedef __flush_u64     lsize; // used for time variables etc.
 
     typedef __flush_uptr    uptr;
     typedef __flush_iptr    iptr;
