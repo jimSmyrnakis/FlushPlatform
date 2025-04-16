@@ -6,17 +6,16 @@ namespace Flush{
     
     
 
-    typedef u32  (*Run)(void);
-    typedef u32  (*Initiallize)(void);
-    typedef u32  (*Finallize)(void);
-    typedef u32  (*Stop)(void);
-    typedef void (*CRoutine)(void* args);
+    
 
     class Runnable{
         public:
-            virtual u32 Run(void) = 0;
-            virtual u32 Start(void) = 0;
-            virtual u32 Stop(void) = 0; 
+            virtual void Loop(void) = 0;
+            virtual void Init(void) = 0;
+            virtual void Fini(void) = 0; 
+
+            virtual void Stop(void)  = 0;
+            virtual void Start(void) = 0;
     };
     
     class Thread{
@@ -30,6 +29,12 @@ namespace Flush{
             virtual Runnable* GetRunnable(void) const = 0;
 
             virtual void Create(void) = 0;
+
+            virtual void Stop(void) = 0;
+            virtual void Start(void) = 0;
+
+            virtual bool IsStopped(void) const = 0;
+
       
         private:
             friend void TestCancel(void); 

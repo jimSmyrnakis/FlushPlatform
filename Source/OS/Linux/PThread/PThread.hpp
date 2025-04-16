@@ -1,4 +1,5 @@
 #include <Thread/Thread.hpp>
+#include <Thread/Mutex.hpp>
 #include <pthread.h>
 #include "../Defs.hpp"
 
@@ -24,13 +25,20 @@ namespace Flush{
             virtual Runnable* GetRunnable(void) const override;
             virtual void Create(void) override;
 
+            virtual void Stop(void) override;
+            virtual void Start(void) override;
+
+            virtual bool IsStopped(void) const override;
+
         private:
-            pthread_attr_t  m_Attributes    ;
-            pthread_t       m_Id            ;
-            PEntry          m_PthreadEntry  ;
-            Runnable*       m_Runnable      ;
-            bool            m_HasCreated    ;
-            bool            m_HasRunned     ;
+            pthread_attr_t*         m_Attributes    ;
+            pthread_t*              m_Id            ;
+            Mutex*                  m_Mutex         ;
+            PEntry                  m_PthreadEntry  ;
+            Runnable*               m_Runnable      ;
+            bool                    m_Stop          ;
+            bool                    m_HasCreated    ;
+            bool                    m_IsDeleted     ;
 
         private:
 
@@ -40,10 +48,10 @@ namespace Flush{
             friend void Cancel(Thread* thread);
             friend Thread* NewThread(void);
             friend void* pthreadRun(void* thread);
-            friend void  pthreadStop(void* thread);
+            friend void  pthreadCancel(void* thread);
     };
 
     void* pthreadRun(void* thread);
-    void  pthreadStop(void* thread);
+    void  pthreadCancel(void* thread);
 
 }

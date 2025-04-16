@@ -6,8 +6,8 @@ namespace Flush{
     class Mutex{
 
         protected:
-            Mutex(void);
-            virtual ~Mutex(void);
+            Mutex(void) = default;
+            virtual ~Mutex(void) = default;
         public:
             virtual void Lock(void)   = 0;
             virtual void UnLock(void) = 0;

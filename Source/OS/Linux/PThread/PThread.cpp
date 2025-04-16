@@ -9,16 +9,24 @@ namespace Flush{
 
         public:
 
-            u32 Run(void) {
-                FLUSH_ASSERT(0 , "Default Runnable is running !!!" , 0);
+            virtual void Loop(void) override {
+                FLUSH_ASSERT(0 , "Default Runnable is Looping !!!" , 0);
             }
 
-            virtual u32 Start(void) {
-                FLUSH_ASSERT(0 , "Default Runnable is starting !!!" , 0);
+            virtual void Init(void) override {
+                FLUSH_ASSERT(0 , "Default Runnable is Initiallize !!!" , 0);
             }
 
-            virtual u32 Stop(void) {
-                FLUSH_ASSERT(0 , "Default Runnable is stopped !!!" , 0);
+            virtual void Fini(void) override {
+                FLUSH_ASSERT(0 , "Default Runnable is Finallized !!!" , 0);
+            }
+
+            virtual void Start(void) override {
+                FLUSH_ASSERT(0 , "Default Runnable is Started !!!" , 0);
+            }
+
+            virtual void Stop(void) override {
+                FLUSH_ASSERT(0 , "Default Runnable is Stopped !!!" , 0);
             }
 
     };
@@ -33,28 +41,33 @@ namespace Flush{
         }
         PThread& th = *((PThread*)thread);
 
-        if (th.m_HasCreated == false){
-            FLUSH_ASSERT(0 , "Pthread has not created yet !!!" , 0);
-            return NULL;
-        }
+        
         
         Runnable* ent = (Runnable*) th.GetRunnable();
         uptr res;
 
-        pthread_cleanup_push(pthreadStop , thread);
-        if (th.m_HasRunned){
-            res = ent->Run();
-        }
-        else{
-            res = ent->Start();
-            th.m_HasRunned = true;
-        }
-        pthread_cleanup_pop(0);
+        pthread_cleanup_push(pthreadCancel , thread);
+            ent->Init();
+            while (true){
+                ent->Loop();
+                
+                if (th.IsStopped()){
+                    ent->Stop();
+                    while(th.IsStopped()) TestCancel();
+                    ent->Start();
+                }
+                TestCancel();
+            }
+        pthread_cleanup_pop(1);
+        
+
 
         return ((void*)res);
     }
 
-    void pthreadStop(void* thread){
+    void pthreadCancel(void* thread){
+
+        
 
         if (thread == nullptr){
             FLUSH_ASSERT(0 , "Pthread Initiallize thread function has nullptr for parameter !!!" , 0);
@@ -63,30 +76,42 @@ namespace Flush{
 
         PThread& th = *((PThread*)thread);
 
-        if (th.m_HasCreated == false){
-            FLUSH_ASSERT(0 , "Pthread has not created yet !!!" , 0);
-            return ;
-        }
+        if (th.m_IsDeleted) return;
         
         Runnable* ent = (Runnable*) th.GetRunnable();
-        uptr res = ent->Stop();
+        ent->Fini();
+
+        if (th.m_Attributes)
+        PThreadCheck( pthread_attr_destroy(th.m_Attributes) );
         
+        if (th.m_Attributes) delete th.m_Attributes;
+        if (th.m_Id) delete th.m_Id;
+
+        th.m_Attributes = nullptr;
+        th.m_Id = nullptr;
+
+        th.m_IsDeleted = true;
     }
     
     PThread::PThread(void) {
 
         m_PthreadEntry  = pthreadRun;
         m_HasCreated = false;
-        m_HasRunned  = false;
         m_Runnable = &NullRunnable;
+        m_Attributes = new pthread_attr_t;
+        m_Id = new pthread_t;
+        m_Mutex = NewMutex();
+        m_Stop = false;
+        m_IsDeleted = false;
+        
+        
         //Initiallize attributes - 
-        PThreadCheck(pthread_attr_init(&m_Attributes) );
-
+        PThreadCheck(pthread_attr_init(m_Attributes) );
         // Set Detached thread - means that thread is independend and must behave like that
         // when no longer exist's for example , then all the space that once have now must 
         // be freed and no longer exist (not let it became zombie thread, waiting for someone to free him
         // with a join call )
-        PThreadCheck(pthread_attr_setdetachstate(&m_Attributes , PTHREAD_CREATE_DETACHED ));
+        PThreadCheck(pthread_attr_setdetachstate(m_Attributes , PTHREAD_CREATE_DETACHED ));
         int dontCare;
         //set thread cancelable
         PThreadCheck(pthread_setcancelstate(PTHREAD_CANCEL_ENABLE , &dontCare));
@@ -95,7 +120,7 @@ namespace Flush{
     }
 
     PThread::~PThread(void){
-        PThreadCheck(pthread_attr_destroy(&m_Attributes));
+        Cancel(this);
     }
 
     void PThread::SetRunnable(Runnable* runnable) {
@@ -106,10 +131,7 @@ namespace Flush{
             return;
         }
 
-        if (!m_HasCreated){
-            FLUSH_ASSERT(0 , "SetRunnable(Runnable* runnable) is Called after Create(void) has called !!!" , 0 );
-            return;
-        }
+        
 
         m_Runnable = runnable; 
     }
@@ -128,11 +150,13 @@ namespace Flush{
             return ;
         }
 
-        PThreadCheck(pthread_create(&m_Id , &m_Attributes , m_PthreadEntry , this) );
+
+
+        PThreadCheck(pthread_create(m_Id , m_Attributes , m_PthreadEntry , this) );
 
          
-
         m_HasCreated = true;
+        
         
     }
 
@@ -149,7 +173,28 @@ namespace Flush{
             return;
         }
 
-        PThreadCheck(pthread_cancel( th.m_Id));
+        PThreadCheck(pthread_cancel( *th.m_Id));
+    }
+
+    void PThread::Stop(void) {
+        m_Mutex->Lock();
+        m_Stop = true;
+        m_Mutex->UnLock();
+    }
+
+    void PThread::Start(void) {
+        m_Mutex->Lock();
+        m_Stop = false;
+        m_Mutex->UnLock();
+    }
+
+    bool PThread::IsStopped(void) const {
+        bool res;
+        m_Mutex->Lock();
+        res = m_Stop;
+        m_Mutex->UnLock();
+
+        return res;
     }
 
     void TestCancel(void){
@@ -164,4 +209,6 @@ namespace Flush{
         if (ptr)
             delete ptr;
     }
+
+
 }
